@@ -10,7 +10,7 @@
 #include "esp_lcd_ili9341.h"
 #include "esp_lcd_touch_xpt2046.h"
 
-// PIN-KONFIGURATION
+// ========== PIN-CONFIG ==========
 #define LCD_HOST       SPI2_HOST
 #define PIN_MOSI       25
 #define PIN_MISO       11
@@ -21,46 +21,42 @@
 #define PIN_TOUCH_CS   2
 #define PIN_TOUCH_IRQ  5
 
-// global touch handle
-esp_lcd_touch_handle_t touch_handle = NULL;
 
-//lvgl touch callback
+// ========== GLOBALS ==========
+
+esp_lcd_touch_handle_t touch_handle = NULL;
+static lv_display_t * disp_global = NULL;
+
+
+// ========== TOUCH CALLBACKS ==========
+
+    //lvgl touch callback
 static void lvgl_touch_cb(lv_indev_t * indev, lv_indev_data_t * data) {
-    printf("lvgl_touch_cb works"); //function check
     esp_lcd_touch_point_data_t point;
     uint8_t touch_cnt = 0;
-
     esp_lcd_touch_read_data(touch_handle); 
     esp_err_t err = esp_lcd_touch_get_data(touch_handle, &point, &touch_cnt, 1);
-
     if (err == ESP_OK && touch_cnt > 0) {
         data->point.x = point.x;
         data->point.y = point.y;
         data->state = LV_INDEV_STATE_PRESSED;
-        // LOGGA HÄR:
-        printf("Touch detekterad! X: %d, Y: %d\n", point.x, point.y);
+        //printf("X: %d, Y: %d\n", point.x, point.y); //remove comment to log coordinates in serial monitor
     } else {
         data->state = LV_INDEV_STATE_RELEASED;
     }
 }
-//callback för knapp
+
+    //callback for button
 static void btn_event_cb(lv_event_t * e) {
-    lv_event_code_t code = lv_event_get_code(e);
     lv_obj_t * btn = lv_event_get_target(e);
-    
-    if(code == LV_EVENT_PRESSED) {
-        // Ändra färg på knappen när man trycker på den
+    if(lv_event_get_code(e) == LV_EVENT_PRESSED) {
         lv_obj_set_style_bg_color(btn, lv_palette_main(LV_PALETTE_GREEN), 0);
-    } if(code == LV_EVENT_RELEASED) {
-        // Ändra tillbaka färgen
+    } else if(lv_event_get_code(e) == LV_EVENT_RELEASED) {
         lv_obj_set_style_bg_color(btn, lv_palette_main(LV_PALETTE_BLUE), 0);
     }
 }
 
-// för callback
-static lv_display_t * disp_global = NULL;
-
-// Callback: Anropas av hårdvaran när SPI-överföringen är fysiskt klar
+    // Callback for when the hardware is done with SPI-transfer
 static bool notify_lvgl_flush_ready(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_io_event_data_t *edata, void *user_ctx) {
     if (disp_global) {
         lv_display_flush_ready(disp_global);
@@ -68,23 +64,73 @@ static bool notify_lvgl_flush_ready(esp_lcd_panel_io_handle_t panel_io, esp_lcd_
     return false;
 }
 
-// Flush: Anropas av LVGL för att rita ett område
+    // Flush called on by LVGL to "paint" an area
 static void lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
     esp_lcd_panel_handle_t panel_handle = (esp_lcd_panel_handle_t)lv_display_get_user_data(disp);
-    
     uint32_t w = (area->x2 - area->x1 + 1);
     uint32_t h = (area->y2 - area->y1 + 1);
+    lv_draw_sw_rgb565_swap(px_map, w * h); // Switch bytes (Little -> Big Endian)
+    esp_lcd_panel_draw_bitmap(panel_handle, area->x1, area->y1, area->x2 + 1, area->y2 + 1, px_map); // Sends pixels to ILI9341
+}
 
-    // Byt bytes (Little -> Big Endian)
-    lv_draw_sw_rgb565_swap(px_map, w * h);
+// Funktionsprototyper
+void ui_home_screen_init(void);
+void ui_settings_screen_init(void);
+
+// --- DELADE CALLBACKS ---
+
+static void change_to_settings_cb(lv_event_t * e) {
+    if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
+        // Skapa inställningar och ta bort hemskärmen (true = auto_del)
+        ui_settings_screen_init();
+        lv_screen_load_anim(lv_screen_active(), LV_SCR_LOAD_ANIM_FADE_ON, 200, 0, true);
+    }
+}
+
+static void change_to_home_cb(lv_event_t * e) {
+    if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
+        // Skapa hemskärm och ta bort inställningar (true = auto_del)
+        ui_home_screen_init();
+        lv_screen_load_anim(lv_screen_active(), LV_SCR_LOAD_ANIM_FADE_ON, 200, 0, true);
+    }
+}
+
+// --- HEMSKÄRM ---
+void ui_home_screen_init(void) {
+    lv_obj_t * scr = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(scr, lv_palette_main(LV_PALETTE_BLUE), 0);
+
+    lv_obj_t * btn = lv_button_create(scr);
+    lv_obj_align(btn, LV_ALIGN_CENTER, 0, 0);
     
-    // Skicka pixlar till ILI9341
-    esp_lcd_panel_draw_bitmap(panel_handle, area->x1, area->y1, area->x2 + 1, area->y2 + 1, px_map);
+    lv_obj_t * label = lv_label_create(btn);
+    lv_label_set_text(label, "Settings");
+
+    // Registrera callback
+    lv_obj_add_event_cb(btn, change_to_settings_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_screen_load(scr);
+}
+
+// --- INSTÄLLNINGAR ---
+void ui_settings_screen_init(void) {
+    lv_obj_t * scr = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(scr, lv_palette_main(LV_PALETTE_GREY), 0);
+
+    lv_obj_t * btn = lv_button_create(scr);
+    lv_obj_align(btn, LV_ALIGN_BOTTOM_MID, 0, -20);
+    
+    lv_obj_t * label = lv_label_create(btn);
+    lv_label_set_text(label, "Back");
+
+    // Register callback
+    lv_obj_add_event_cb(btn, change_to_home_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_screen_load(scr);
 }
 
 void app_main() {
-    printf("serial monitor funkar");
-    // 1. Initiera SPI-bussen
+    // ===== Initiate SPI-bus =====
     spi_bus_config_t buscfg = {
         .sclk_io_num = PIN_CLK,
         .mosi_io_num = PIN_MOSI,
@@ -95,20 +141,16 @@ void app_main() {
     };
     ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &buscfg, SPI_DMA_CH_AUTO));
 
-    // Minska störningar på långa kablar
-    gpio_set_drive_capability(PIN_CLK,  GPIO_DRIVE_CAP_0);
-    gpio_set_drive_capability(PIN_MOSI, GPIO_DRIVE_CAP_0);
-
-    // 2. Initiera LVGL (Måste göras tidigt för att skapa display-objektet)
+    // ===== LVGL Core =====
     lv_init();
     disp_global = lv_display_create(240, 320);
 
-    // 3. Konfigurera Panel IO
+    // ===== LCD-panel IO and driver =====
     esp_lcd_panel_io_handle_t io_handle = NULL;
     esp_lcd_panel_io_spi_config_t io_config = {
         .dc_gpio_num = PIN_DC,
         .cs_gpio_num = PIN_CS,
-        .pclk_hz = 20 * 1000 * 1000, // styr snabbhetet. Högre=snabbare men mindre stabilt
+        .pclk_hz = 20 * 1000 * 1000, // pixel clock frequency; Higher=faster updates but might introduce instability
         .lcd_cmd_bits = 8,
         .lcd_param_bits = 8,
         .spi_mode = 0,
@@ -118,7 +160,6 @@ void app_main() {
     };
     ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_HOST, &io_config, &io_handle));
 
-    // 4. Initiera ILI9341 Panel
     esp_lcd_panel_handle_t panel_handle = NULL;
     esp_lcd_panel_dev_config_t panel_config = {
         .reset_gpio_num = PIN_RST,
@@ -126,31 +167,25 @@ void app_main() {
         .bits_per_pixel = 16,
     };
     ESP_ERROR_CHECK(esp_lcd_new_panel_ili9341(io_handle, &panel_config, &panel_handle));
-
-    ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
-    ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
-    ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
-
-    // Inställningar för orientering
+    
+    esp_lcd_panel_reset(panel_handle);
+    esp_lcd_panel_init(panel_handle);
+    esp_lcd_panel_disp_on_off(panel_handle, true);
     esp_lcd_panel_mirror(panel_handle, false, true);
-    esp_lcd_panel_swap_xy(panel_handle, false);
-    esp_lcd_panel_set_gap(panel_handle, 0, 0);
 
-    // 5. Slutför LVGL-konfiguration
+
+    // ===== LVGL Display settings =====
     lv_display_set_user_data(disp_global, panel_handle);
     lv_display_set_flush_cb(disp_global, lvgl_flush_cb);
     lv_display_set_color_format(disp_global, LV_COLOR_FORMAT_RGB565);
 
-    // Allokera DMA-minne för buffert (80 rader för stabilitet)
+    // Allokera DMA-minne för buffert
     void *buf1 = heap_caps_malloc(240 * 80 * sizeof(uint16_t), MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
-    lv_display_set_buffers(disp_global, buf1, NULL, 240 * 80 * sizeof(uint16_t), LV_DISPLAY_RENDER_MODE_PARTIAL);
+    lv_display_set_buffers(disp_global, buf1, NULL, 240 * 40 * sizeof(uint16_t), LV_DISPLAY_RENDER_MODE_PARTIAL);
 
     // Skapa en IO-konfiguration för touch (ny CS-pin)
     esp_lcd_panel_io_handle_t tp_io_handle = NULL;
-    // Tvinga CS hög innan vi börjar för att nollställa bussen
-    gpio_set_direction(PIN_TOUCH_CS, GPIO_MODE_OUTPUT);
-    gpio_set_level(PIN_TOUCH_CS, 1);
-    vTaskDelay(pdMS_TO_TICKS(100));
+    
     esp_lcd_panel_io_spi_config_t tp_io_config = ESP_LCD_TOUCH_IO_SPI_XPT2046_CONFIG(PIN_TOUCH_CS);
     tp_io_config.pclk_hz = 1 * 1000 * 1000;
     ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_HOST, &tp_io_config, &tp_io_handle));
@@ -173,51 +208,37 @@ void app_main() {
     };
     ESP_ERROR_CHECK(esp_lcd_touch_new_spi_xpt2046(tp_io_handle, &tp_cfg, &touch_handle));
 
-    if (touch_handle == NULL) {
-        printf("ERROR: Touch handle could not be initialized!\n");
-    } else {
-        printf("Touch initialized successfully.\n");
-    }
-
-    // Registrera hos LVGL
+    // ======== LVGL ==========
     lv_indev_t * indev = lv_indev_create();
     lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(indev, lvgl_touch_cb);
 
-    // Skapa UI
-    lv_obj_t *scr = lv_screen_active();
-    lv_obj_set_style_bg_color(scr, lv_palette_main(LV_PALETTE_RED), 0);
+    // Create UI
+    // lv_obj_t *scr = lv_screen_active();
+    // lv_obj_set_style_bg_color(scr, lv_palette_main(LV_PALETTE_RED), 0);
 
-    lv_obj_t * btn = lv_button_create(scr);
-    lv_obj_add_event_cb(btn, btn_event_cb, LV_EVENT_ALL, NULL);
-    lv_obj_set_size(btn, 100, 40);
-    lv_obj_align(btn, LV_ALIGN_CENTER, 0, 0);
+    // lv_obj_t * btn = lv_button_create(scr);
+    // lv_obj_add_event_cb(btn, btn_event_cb, LV_EVENT_ALL, NULL);
+    // lv_obj_set_size(btn, 100, 40);
+    // lv_obj_align(btn, LV_ALIGN_CENTER, 0, 0);
 
-    lv_obj_t * label = lv_label_create(btn);
-    lv_label_set_text_static(label, "Click");
-    lv_obj_center(label);
+    // lv_obj_t * label = lv_label_create(btn);
+    // lv_label_set_text_static(label, "Click");
+    // lv_obj_center(label);
 
-    // lv_obj_t *label = lv_label_create(scr);
-    // lv_label_set_text(label, "ESP32-H2 ONLINE\n1234 TEST");
-    // lv_obj_set_style_text_color(label, lv_color_white(), 0);
-    // lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-    // lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
-
-    // 7. Loop
-   int counter = 0;
-    lv_obj_t * counter_label = lv_label_create(lv_screen_active());
-    lv_obj_align(counter_label, LV_ALIGN_TOP_MID, 0, 10);
+    ui_home_screen_init(); // Starta första skärmen
 
     while (1) {
-        lv_timer_handler();
-        // Berätta för LVGL att 50ms har gått (eftersom din delay är 50ms)
-        lv_tick_inc(50);
-
-        // Uppdatera en räknare på skärmen varje sekund
-        if (counter++ % 20 == 0) { 
-            lv_label_set_text_fmt(counter_label, "System rullar: %d", counter / 20);
-        }
+        // 1. Hantera timers och få tid till nästa körning
+        uint32_t time_till_next = lv_timer_handler();
         
-        vTaskDelay(pdMS_TO_TICKS(50)); 
+        // 2. Öka LVGL-ticks (vi mäter tiden som faktiskt gått)
+        lv_tick_inc(10); 
+
+        // 3. Strömspar: Sov exakt så länge som behövs (max 50ms för responsivitet)
+        if (time_till_next > 50) time_till_next = 50;
+        if (time_till_next < 1) time_till_next = 1;
+        
+        vTaskDelay(pdMS_TO_TICKS(time_till_next));
     }
 }
