@@ -78,6 +78,7 @@ static void lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px
 // Menu-prototyopes
 void ui_home_screen_init(void);
 void ui_options_screen_init(void);
+//void ui_alarm_screen_init(void); // TO BE ADDED
 
 // ======== SHARED CALLBACKS =========
 
@@ -168,17 +169,29 @@ void ui_home_screen_init(void) {
     lv_obj_set_style_text_color(outside_temp, lv_color_white(), 0);
     lv_obj_align(outside_temp, LV_ALIGN_CENTER, 0, 10);
 
-    lv_obj_t * btn = lv_button_create(scr);
-    lv_obj_set_size(btn, 100, 40);
-    lv_obj_align(btn, LV_ALIGN_BOTTOM_MID, 0, -5);
+    // buttons
+        // Alarm toggle
+    lv_obj_t * alarm_btn = lv_button_create(scr);
+    lv_obj_set_size(alarm_btn, 80, 25);
+    lv_obj_align(alarm_btn, LV_ALIGN_TOP_LEFT, 10, 10);
+    lv_obj_set_style_bg_color(alarm_btn, lv_palette_main(LV_PALETTE_BLUE), 0);
+
+    lv_obj_t * alarm_label = lv_label_create(alarm_btn);
+    lv_label_set_text(alarm_label, "Alarm");
+    lv_obj_align(alarm_label, LV_ALIGN_CENTER, 0, 0);
     
-    lv_obj_t * label = lv_label_create(btn);
+        // Options
+    lv_obj_t * opt_btn = lv_button_create(scr);
+    lv_obj_set_size(opt_btn, 80, 25);
+    lv_obj_align(opt_btn, LV_ALIGN_BOTTOM_MID, 0, -5);
+    
+    lv_obj_t * label = lv_label_create(opt_btn);
     lv_label_set_text(label, "Options");
     lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
 
     // Register callback
-    lv_obj_add_event_cb(btn, change_to_options_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_set_style_bg_color(btn, lv_palette_main(LV_PALETTE_GREY), 0);
+    lv_obj_add_event_cb(opt_btn, change_to_options_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_set_style_bg_color(opt_btn, lv_palette_main(LV_PALETTE_GREY), 0);
     lv_screen_load(scr);
 }
 
