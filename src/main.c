@@ -123,41 +123,58 @@ void ui_home_screen_init(void) {
     lv_obj_align(inside_box, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
     lv_obj_set_style_bg_color(inside_box, lv_color_hex(0x352B3A), 0);
     lv_obj_set_style_radius(inside_box, 0, 0);
-    lv_obj_set_style_border_width(inside_box, 0, 0);
-    // Custom corner radius for the bottom right
-    lv_obj_set_style_radius(inside_box, 30, 0);
+    lv_obj_set_style_border_width(inside_box, 2, 0);
+    lv_obj_set_style_border_color(inside_box, lv_color_white(), 0);
+    lv_obj_set_style_radius(inside_box, 20, 0);
 
     // Outside Box
     lv_obj_t * outside_box = lv_obj_create(container);
-    lv_obj_set_size(outside_box, 140, 100);
+    lv_obj_set_size(outside_box, 110, 100);
     lv_obj_align(outside_box, LV_ALIGN_BOTTOM_LEFT, 0, 0);
     lv_obj_set_style_bg_opa(outside_box, 0, 0); // Transparent
     lv_obj_set_style_border_width(outside_box, 2, 0);
     lv_obj_set_style_border_color(outside_box, lv_color_white(), 0);
     lv_obj_set_style_border_side(outside_box, LV_BORDER_SIDE_FULL, 0);
-    lv_obj_set_style_radius(outside_box, 50, 0); // Rounded sides
+    lv_obj_set_style_radius(outside_box, 20, 0);
 
-    //labels
+    // labels
         // inside
     lv_obj_t * inside_header = lv_label_create(inside_box);
     lv_label_set_text(inside_header, "Inside");
     lv_obj_set_style_text_color(inside_header, lv_color_white(), 0);
-    lv_obj_align(inside_header, LV_ALIGN_TOP_MID, 0, 5);
+    lv_obj_align(inside_header, LV_ALIGN_TOP_MID, 0, 0);
 
     lv_obj_t * inside_temp = lv_label_create(inside_box);
     lv_label_set_text(inside_temp, "23°C");
-    
     lv_obj_set_style_text_font(inside_temp, LV_FONT_DEFAULT, 0);
     lv_obj_set_style_text_color(inside_temp, lv_color_white(), 0);
-    lv_obj_align(inside_temp, LV_ALIGN_CENTER, 0, 10);
-    
-        //  outside
+    lv_obj_align(inside_temp, LV_ALIGN_CENTER, 0, 0);
+
+    lv_obj_t * inside_humid = lv_label_create(inside_box);
+    lv_label_set_text(inside_humid, "46%");
+    lv_obj_set_style_text_font(inside_humid, LV_FONT_DEFAULT, 0);
+    lv_obj_set_style_text_color(inside_humid, lv_color_white(), 0);
+    lv_obj_align(inside_humid, LV_ALIGN_CENTER, 0, 20);
+
+        // outside
+    lv_obj_t * outside_header = lv_label_create(outside_box);
+    lv_label_set_text(outside_header, "Outside");
+    lv_obj_set_style_text_color(outside_header, lv_color_white(), 0);
+    lv_obj_align(outside_header, LV_ALIGN_TOP_MID, 0, 0);
+
+    lv_obj_t * outside_temp = lv_label_create(outside_box);
+    lv_label_set_text(outside_temp, "-4°C");
+    lv_obj_set_style_text_font(outside_temp, LV_FONT_DEFAULT, 0);
+    lv_obj_set_style_text_color(outside_temp, lv_color_white(), 0);
+    lv_obj_align(outside_temp, LV_ALIGN_CENTER, 0, 10);
+
     lv_obj_t * btn = lv_button_create(scr);
     lv_obj_set_size(btn, 100, 40);
     lv_obj_align(btn, LV_ALIGN_BOTTOM_MID, 0, -5);
     
     lv_obj_t * label = lv_label_create(btn);
     lv_label_set_text(label, "Options");
+    lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
 
     // Register callback
     lv_obj_add_event_cb(btn, change_to_options_cb, LV_EVENT_CLICKED, NULL);
@@ -252,9 +269,8 @@ void app_main() {
     esp_lcd_panel_reset(panel_handle);
     esp_lcd_panel_init(panel_handle);
     
-    // --- Hardware Rotation Applied Here ---
     esp_lcd_panel_swap_xy(panel_handle, true);
-    // Note: If colors or directions are inverted, toggle true/false here
+    // If colors or directions are inverted, toggle true/false here
     esp_lcd_panel_mirror(panel_handle, false, false); 
     
     esp_lcd_panel_disp_on_off(panel_handle, true);
@@ -264,7 +280,7 @@ void app_main() {
     lv_display_set_flush_cb(disp_global, lvgl_flush_cb);
     lv_display_set_color_format(disp_global, LV_COLOR_FORMAT_RGB565);
 
-    // Allocate perfectly aligned DMA buffer
+    // Allocate DMA buffer
     void *buf1 = heap_caps_malloc(BUF_SIZE_BYTES, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     
     if (buf1 == NULL) {
@@ -280,8 +296,8 @@ void app_main() {
     ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_HOST, &tp_io_config, &tp_io_handle));
 
     esp_lcd_touch_config_t tp_cfg = {
-        .x_max = 240, // Keep physical max
-        .y_max = 320, // Keep physical max
+        .x_max = 240,
+        .y_max = 320,
         .rst_gpio_num = -1, 
         .int_gpio_num = -1,
         .levels = {
