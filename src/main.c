@@ -11,7 +11,11 @@
 #include "esp_lcd_touch_xpt2046.h"
 
 
-// ========== PIN-CONFIG ==========
+// ========== CONFIG ==========
+#define LCD_H_RES           320
+#define LCD_V_RES           240
+#define LCD_BUFFER_LINES    20
+
 #define LCD_HOST       SPI2_HOST
 #define PIN_MOSI       25
 #define PIN_MISO       11
@@ -64,13 +68,6 @@ static void lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px
     esp_lcd_panel_draw_bitmap(panel_handle, area->x1, area->y1, area->x2 + 1, area->y2 + 1, px_map); // Sends pixels to ILI9341
 }
 
-//change bg-color callback
-static void change_bg(lv_event_t * e){
-    if (lv_event_get_code(e) == LV_EVENT_CLICKED){
-        lv_obj_t * scr  = lv_obj_create(NULL);
-        lv_obj_set_style_bg_color(scr, lv_palette_main(LV_PALETTE_GREEN), 0);
-    }
-}
 // button to test touch and display responsiveness
 void test_screen (void){
 
@@ -85,19 +82,22 @@ void test_screen (void){
     lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_style_text_color(label, lv_color_white(), 0);
 
-    lv_obj_add_event_cb(btn, change_bg, LV_EVENT_CLICKED, NULL);
-
     lv_screen_load(scr);
 }
 
 static void lvgl_port_task(void *arg) {
-    test_screen();
-    while (1) {
-        uint32_t time_till_next = lv_timer_handler();
-        lv_tick_inc(10); 
+    while (!hardware_ready) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    
+    test_screen(); 
 
+    while (1) {
+        lv_tick_inc(10); 
+        uint32_t time_till_next = lv_timer_handler();
+        
         if (time_till_next < 1) time_till_next = 1;
-        if (time_till_next > 50) time_till_next = 50;
+        if (time_till_next > 30) time_till_next = 30;
         
         vTaskDelay(pdMS_TO_TICKS(time_till_next));
     }
@@ -105,8 +105,6 @@ static void lvgl_port_task(void *arg) {
 
 void app_main() {
     // ===== Display Constants =====
-    const uint16_t LCD_H_RES = 320;
-    const uint16_t LCD_V_RES = 240;
     const uint16_t BUF_LINES = 20; 
     const uint32_t BUF_SIZE_PX = LCD_H_RES * BUF_LINES; 
     const uint32_t BUF_SIZE_BYTES = LCD_H_RES * BUF_LINES * sizeof(uint16_t);
