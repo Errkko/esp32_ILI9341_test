@@ -31,6 +31,8 @@ lv_obj_t * inside_box = NULL;
 lv_obj_t * inside_temp  = NULL;
 lv_obj_t * inside_humid = NULL;
 
+SemaphoreHandle_t xGuiSemaphore = NULL;
+
 // ======== ALARM STATE ========
 typedef enum {
     ALARM_OFF = 0,
@@ -50,16 +52,19 @@ void sensor_read(void *pvParameters){
 
     while(1){
         status = read_dht11(GPIO_NUM_8, &temp, &hum);
-        
         if(status == 0){
-            if(inside_temp != NULL && inside_humid != NULL){
-                int t_int = (int)temp;
-                int h_int = (int)hum;
-                lv_label_set_text_fmt(inside_temp, "%d°C", t_int);
-                lv_label_set_text_fmt(inside_humid, "%d %%", h_int);
-                printf("Temp: %.1f C, Hum: %.0f%%\n", temp, hum);
-            } 
+            if(pdTRUE == xSemaphoreTake(xGuiSemaphore, portMAX_DELAY)){
+                if(inside_temp != NULL && inside_humid != NULL){
+                    int t_int = (int)temp;
+                    int h_int = (int)hum;
+                    lv_label_set_text_fmt(inside_temp, "%d°C", t_int);
+                    lv_label_set_text_fmt(inside_humid, "%d %%", h_int);
+                    printf("Temp: %.1f C, Hum: %.0f%%\n", temp, hum);
+                } 
+                xSemaphoreGive(xGuiSemaphore);
+            }
         } else {printf("Sensor failed, error code: %d\n", status);}
+
         vTaskDelay(pdMS_TO_TICKS(10000));
     } 
 }
@@ -105,24 +110,41 @@ void ui_home_screen_init(void);
 void ui_options_screen_init(void);
 void ui_status_screen_init(void);
 
+static void clear_home_screen_pointers(){
+    inside_box = NULL;
+    inside_temp = NULL;
+    inside_humid = NULL;
+    alarm_btn = NULL;
+    alarm_label = NULL;
+}
+
 static void change_to_options_cb(lv_event_t * e) {
     if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
         // Create options and remove home_screen (true = auto delete)
+        clear_home_screen_pointers();
         ui_options_screen_init();
+
+        lv_obj_t * new_scr = lv_screen_active();
         lv_screen_load_anim(lv_screen_active(), LV_SCR_LOAD_ANIM_FADE_ON, 200, 0, true);
     }
 }
 
 static void change_to_home_cb(lv_event_t * e) {
     if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
+        clear_home_screen_pointers();
         ui_home_screen_init();
+        
+        lv_obj_t * new_scr = lv_screen_active();
         lv_screen_load_anim(lv_screen_active(), LV_SCR_LOAD_ANIM_FADE_ON, 200, 0, true);
     }
 } 
 
 static void change_to_status_cb(lv_event_t * e) {
     if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
+        clear_home_screen_pointers();
         ui_status_screen_init();
+        
+        lv_obj_t * new_scr = lv_screen_active();
         lv_screen_load_anim(lv_screen_active(), LV_SCR_LOAD_ANIM_FADE_ON, 200, 0, true);
     }
 }
@@ -335,16 +357,23 @@ static void lvgl_port_task(void *arg) {
     ui_home_screen_init(); 
     bl_pwm_init();
     while (1) {
-        uint32_t time_till_next = lv_timer_handler();
+        uint32_t time_till_next = 50; // Default
+        
+        if (pdTRUE == xSemaphoreTake(xGuiSemaphore, portMAX_DELAY)){
+            time_till_next = lv_timer_handler();
+        
+            uint32_t idle_time = lv_display_get_inactive_time(NULL); // Returns ms
+            if (idle_time > 5000) { // 5s of inactivity
+                set_bl_brightness(1); // Dim to 5%
+            } else {
+                set_bl_brightness(50); // 50% as standard
+            }
+
+            xSemaphoreGive(xGuiSemaphore);
+        }
+        
         lv_tick_inc(10); 
         
-        uint32_t idle_time = lv_display_get_inactive_time(NULL); // Returns ms
-        if (idle_time > 5000) { // 5s of inactivity
-            set_bl_brightness(1); // Dim to 5%
-        } else {
-            set_bl_brightness(50); // 50% as standard
-        }
-
         if (time_till_next < 1) time_till_next = 1;
         if (time_till_next > 50) time_till_next = 50;
         
@@ -451,9 +480,9 @@ void app_main() {
     lv_indev_set_read_cb(indev, lvgl_touch_cb);
  
     hardware_ready = true;
-    
-    xTaskCreate(lvgl_port_task, "LVGL", 1024 * 8, NULL, 5, NULL);
+    xGuiSemaphore = xSemaphoreCreateMutex();
 
+    xTaskCreate(lvgl_port_task, "LVGL", 1024 * 16, NULL, 5, NULL);
     xTaskCreate(sensor_read, "DHT11_Task", 1024 * 4, NULL, 2, NULL);
     
     vTaskDelete(NULL);
