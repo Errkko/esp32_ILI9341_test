@@ -40,33 +40,27 @@ typedef enum {
     ALARM_TRIGGERED,
 } alarm_state_t;
 
+typedef struct {
+    float temperature;
+    float humidity;
+} sensor_data_t;
+
+//Queue handler
+QueueHandle_t sensor_queue = NULL;
+
 static alarm_state_t alarm_state = ALARM_OFF;
 static lv_obj_t * alarm_btn = NULL;
 static lv_obj_t * alarm_label = NULL;
 
 // ========== SENSOR READING ==========
-void sensor_read(void *pvParameters){
-    float temp = 0;
-    float hum = 0;
-    int status = 0;
-
-    while(1){
-        status = read_dht11(GPIO_NUM_8, &temp, &hum);
-        if(status == 0){
-            if(pdTRUE == xSemaphoreTake(xGuiSemaphore, portMAX_DELAY)){
-                if(inside_temp != NULL && inside_humid != NULL){
-                    int t_int = (int)temp;
-                    int h_int = (int)hum;
-                    lv_label_set_text_fmt(inside_temp, "%d°C", t_int);
-                    lv_label_set_text_fmt(inside_humid, "%d %%", h_int);
-                    printf("Temp: %.1f C, Hum: %.0f%%\n", temp, hum);
-                } 
-                xSemaphoreGive(xGuiSemaphore);
-            }
-        } else {printf("Sensor failed, error code: %d\n", status);}
-
+void sensor_read(void *pvParameters) {
+    sensor_data_t msg;
+    while(1) {
+        if(read_dht11(GPIO_NUM_8, &msg.temperature, &msg.humidity) == 0) {
+            xQueueSend(sensor_queue, &msg, 0);
+        }
         vTaskDelay(pdMS_TO_TICKS(10000));
-    } 
+    }
 }
 
 // ========== TOUCH CALLBACKS ==========
@@ -106,9 +100,9 @@ static void lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px
 }
 
 // Menu-prototyopes
-void ui_home_screen_init(void);
-void ui_options_screen_init(void);
-void ui_status_screen_init(void);
+lv_obj_t * ui_home_screen_init(void);
+lv_obj_t * ui_options_screen_init(void);
+lv_obj_t * ui_status_screen_init(void);
 
 static void clear_home_screen_pointers(){
     inside_box = NULL;
@@ -122,30 +116,27 @@ static void change_to_options_cb(lv_event_t * e) {
     if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
         // Create options and remove home_screen (true = auto delete)
         clear_home_screen_pointers();
-        ui_options_screen_init();
 
-        lv_obj_t * new_scr = lv_screen_active();
-        lv_screen_load_anim(lv_screen_active(), LV_SCR_LOAD_ANIM_FADE_ON, 200, 0, true);
+        lv_obj_t * next_scr = ui_options_screen_init(); 
+        lv_screen_load_anim(next_scr, LV_SCR_LOAD_ANIM_FADE_ON, 10, 0, true);
     }
 }
 
 static void change_to_home_cb(lv_event_t * e) {
     if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
         clear_home_screen_pointers();
-        ui_home_screen_init();
         
-        lv_obj_t * new_scr = lv_screen_active();
-        lv_screen_load_anim(lv_screen_active(), LV_SCR_LOAD_ANIM_FADE_ON, 200, 0, true);
+        lv_obj_t * next_scr = ui_home_screen_init();
+        lv_screen_load_anim(next_scr, LV_SCR_LOAD_ANIM_FADE_ON, 10, 0, true);
     }
 } 
 
 static void change_to_status_cb(lv_event_t * e) {
     if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
         clear_home_screen_pointers();
-        ui_status_screen_init();
         
-        lv_obj_t * new_scr = lv_screen_active();
-        lv_screen_load_anim(lv_screen_active(), LV_SCR_LOAD_ANIM_FADE_ON, 200, 0, true);
+        lv_obj_t * next_scr = ui_status_screen_init();
+        lv_screen_load_anim(next_scr, LV_SCR_LOAD_ANIM_FADE_ON, 10, 0, true);
     }
 }
 
@@ -177,7 +168,7 @@ static void alarm_toggle_cb(lv_event_t * e) {
 }
 
 // ====== HOMESCREEN ========
-void ui_home_screen_init(void) {
+lv_obj_t * ui_home_screen_init(void) {
     lv_obj_t * scr = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x000000), 0); //black
 
@@ -283,11 +274,11 @@ void ui_home_screen_init(void) {
     lv_obj_add_event_cb(opt_btn, change_to_options_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(stat_btn, change_to_status_cb, LV_EVENT_CLICKED, NULL);
 
-    lv_screen_load(scr);
+    return scr;
 }
 
 // ======== Settings =======
-void ui_options_screen_init(void){
+lv_obj_t * ui_options_screen_init(void){
     lv_obj_t * scr = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x000000), 0); //black
 
@@ -302,11 +293,11 @@ void ui_options_screen_init(void){
 
     // Register callback
     lv_obj_add_event_cb(btn, change_to_home_cb, LV_EVENT_CLICKED, NULL);
-    lv_screen_load(scr);
+    return scr;
 }
 
 // ====== Status ======
-void ui_status_screen_init(void){
+lv_obj_t * ui_status_screen_init(void){
     lv_obj_t * scr = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x000000), 0); //black
 
@@ -349,32 +340,47 @@ void ui_status_screen_init(void){
 
     // Register callback
     lv_obj_add_event_cb(btn, change_to_home_cb, LV_EVENT_CLICKED, NULL);
-    lv_screen_load(scr);
+    return scr;
 }
 
 static void lvgl_port_task(void *arg) {
-    // Wait here until app_main says it's okay to start
-    ui_home_screen_init(); 
+    ui_home_screen_init();
     bl_pwm_init();
+    
+    if (xSemaphoreTake(xGuiSemaphore, portMAX_DELAY) == pdTRUE) {
+        lv_obj_t * main_scr = ui_home_screen_init();
+        lv_screen_load(main_scr);
+        xSemaphoreGive(xGuiSemaphore);
+    }
+
+    sensor_data_t received_msg;
     while (1) {
-        uint32_t time_till_next = 50; // Default
-        
-        if (pdTRUE == xSemaphoreTake(xGuiSemaphore, portMAX_DELAY)){
-            time_till_next = lv_timer_handler();
-        
-            uint32_t idle_time = lv_display_get_inactive_time(NULL); // Returns ms
-            if (idle_time > 5000) { // 5s of inactivity
-                set_bl_brightness(1); // Dim to 5%
-            } else {
-                set_bl_brightness(50); // 50% as standard
+        uint32_t time_till_next = 10;
+
+        if (xSemaphoreTake(xGuiSemaphore, pdMS_TO_TICKS(100)) == pdTRUE) {
+            
+            if (xQueueReceive(sensor_queue, &received_msg, 0) == pdTRUE) {
+                if (inside_temp != NULL && inside_humid != NULL) {
+                    lv_label_set_text_fmt(inside_temp, "%d°C", (int)received_msg.temperature);
+                    lv_label_set_text_fmt(inside_humid, "%d %%", (int)received_msg.humidity);
+                }
             }
 
+                uint32_t idle_time = lv_display_get_inactive_time(NULL); // Returns ms
+                if (idle_time > 5000) { // 5s of inactivity
+                    set_bl_brightness(1); // Dim to 5%
+                } else {
+                    set_bl_brightness(50); // 50% as standard
+                }
+
+            time_till_next = lv_timer_handler();
+            
             xSemaphoreGive(xGuiSemaphore);
         }
-        
+
         lv_tick_inc(10); 
-        
-        if (time_till_next < 1) time_till_next = 1;
+
+        if (time_till_next < 10) time_till_next = 10;
         if (time_till_next > 50) time_till_next = 50;
         
         vTaskDelay(pdMS_TO_TICKS(time_till_next));
@@ -481,6 +487,8 @@ void app_main() {
  
     hardware_ready = true;
     xGuiSemaphore = xSemaphoreCreateMutex();
+
+    sensor_queue = xQueueCreate(5, sizeof(sensor_data_t));
 
     xTaskCreate(lvgl_port_task, "LVGL", 1024 * 16, NULL, 5, NULL);
     xTaskCreate(sensor_read, "DHT11_Task", 1024 * 4, NULL, 2, NULL);
